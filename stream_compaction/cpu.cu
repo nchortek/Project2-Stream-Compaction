@@ -1,4 +1,6 @@
+#include <cassert>
 #include <cstdio>
+#include <vector>
 #include "cpu.h"
 
 #include "common.h"
@@ -13,19 +15,11 @@ namespace StreamCompaction {
         }
 
         /**
-         * CPU scan (prefix sum).
-         * For performance analysis, this is supposed to be a simple for loop.
-         * (Optional) For better understanding before starting moving to GPU, you can simulate your GPU scan in this function first.
-         */
-        void scan(int n, int *odata, const int *idata)
+        * CPU scan implementation
+        */
+        inline void scan_(int n, int* odata, const int* idata)
         {
-            timer().startCpuTimer();
-            // TODO
-            if (n < 1)
-            {
-                timer().endCpuTimer();
-                return;
-            }
+            assert(n >= 1);
 
             odata[0] = 0;
 
@@ -33,7 +27,23 @@ namespace StreamCompaction {
             {
                 odata[i] = idata[i - 1] + odata[i - 1];
             }
+        }
 
+        /**
+         * CPU scan (prefix sum).
+         * For performance analysis, this is supposed to be a simple for loop.
+         * (Optional) For better understanding before starting moving to GPU, you can simulate your GPU scan in this function first.
+         */
+        void scan(int n, int *odata, const int *idata)
+        {
+            if (n < 1)
+            {
+                return;
+            }
+
+            timer().startCpuTimer();
+            // TODO
+            scan_(n, odata, idata);
             timer().endCpuTimer();
         }
 
@@ -66,11 +76,37 @@ namespace StreamCompaction {
          *
          * @returns the number of elements remaining after compaction.
          */
-        int compactWithScan(int n, int *odata, const int *idata) {
+        int compactWithScan(int n, int *odata, const int *idata)
+        {
+            if (n < 1)
+            {
+                return 0;
+            }
+
+            std::vector<int> mask(n);
+            std::vector<int> scanOutput(n);
+
             timer().startCpuTimer();
             // TODO
+            for (int i = 0; i < n; i++)
+            {
+                mask[i] = idata[i] != 0 ? 1 : 0;
+            }
+
+            scan_(n, scanOutput.data(), mask.data());
+
+            int count = 0;
+            for (int i = 0; i < n; i++)
+            {
+                if (mask[i] != 0)
+                {
+                    count++;
+                    odata[scanOutput[i]] = idata[i];
+                }
+            }
+
             timer().endCpuTimer();
-            return -1;
+            return count;
         }
     }
 }
