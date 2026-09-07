@@ -17,7 +17,8 @@ namespace StreamCompaction {
          * For performance analysis, this is supposed to be a simple for loop.
          * (Optional) For better understanding before starting moving to GPU, you can simulate your GPU scan in this function first.
          */
-        void scan(int n, int *odata, const int *idata) {
+        void scan(int n, int *odata, const int *idata)
+        {
             timer().startCpuTimer();
             // TODO
             if (n < 1)
@@ -41,11 +42,23 @@ namespace StreamCompaction {
          *
          * @returns the number of elements remaining after compaction.
          */
-        int compactWithoutScan(int n, int *odata, const int *idata) {
+        int compactWithoutScan(int n, int *odata, const int *idata)
+        {
             timer().startCpuTimer();
             // TODO
+            int count = 0;
+
+            for (int i = 0; i < n; i++)
+            {
+                if (int curVal = idata[i]; curVal != 0)
+                {
+                    odata[count] = curVal;
+                    count++;
+                }
+            }
+
             timer().endCpuTimer();
-            return -1;
+            return count;
         }
 
         /**
