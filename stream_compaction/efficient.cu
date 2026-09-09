@@ -42,6 +42,31 @@ namespace StreamCompaction {
             data[rightChildIdx] += leftChildVal;
         }
 
+        inline void scan_(int paddedLen, int blockSize, int *dev_data)
+        {
+            int steps = ilog2ceil(paddedLen);
+            for (int d = 0; d < steps; d++)
+            {
+                int halfStride = 1 << d;
+                int stride = halfStride << 1;
+                int expectedWrites = paddedLen / stride;
+                kernUpsweep<<<divup(expectedWrites, blockSize), blockSize>>>(expectedWrites, stride, halfStride, dev_data);
+                checkCUDAError("Failed to launch kernUpsweep");
+            }
+
+            cudaMemset(&dev_data[paddedLen - 1], 0, sizeof(int));
+            checkCUDAError("Failed to cudaMemset dev_data in preparation for Downsweep");
+
+            for (int d = steps - 1; d >= 0; d--)
+            {
+                int halfStride = 1 << d;
+                int stride = halfStride << 1;
+                int expectedWrites = paddedLen / stride;
+                kernDownsweep<<<divup(expectedWrites, blockSize), blockSize>>>(expectedWrites, stride, halfStride, dev_data);
+                checkCUDAError("Failed to launch kernDownsweep");
+            }
+        }
+
         /**
          * Performs prefix-sum (aka scan) on idata, storing the result into odata.
          */
@@ -54,10 +79,9 @@ namespace StreamCompaction {
 
             int *dev_data;
             const int blockSize = 256;
-            const size_t intSize = sizeof(int);
             int paddedLen = 1 << ilog2ceil(n);
-            size_t dataSize = n * intSize;
-            size_t paddedDataSize = paddedLen * intSize;
+            size_t dataSize = n * sizeof(int);
+            size_t paddedDataSize = paddedLen * sizeof(int);
             cudaMalloc((void**)&dev_data, paddedDataSize);
             checkCUDAError("Failed to cudaMalloc dev_data");
             cudaMemset(dev_data, 0, paddedDataSize);
@@ -67,27 +91,7 @@ namespace StreamCompaction {
 
             timer().startGpuTimer();
             // TODO
-            int steps = ilog2ceil(paddedLen);
-            for (int d = 0; d < steps; d++)
-            {
-                int halfStride = 1 << d;
-                int stride = halfStride << 1;
-                int expectedWrites = paddedLen / stride;
-                kernUpsweep<<<divup(expectedWrites, blockSize), blockSize>>>(expectedWrites, stride, halfStride, dev_data);
-                checkCUDAError("Failed to launch kernUpsweep");
-            }
-
-            cudaMemset(&dev_data[paddedLen - 1], 0, intSize);
-            checkCUDAError("Failed to cudaMemset dev_data in preparation for Downsweep");
-
-            for (int d = steps - 1; d >= 0; d--)
-            {
-                int halfStride = 1 << d;
-                int stride = halfStride << 1;
-                int expectedWrites = paddedLen / stride;
-                kernDownsweep<<<divup(expectedWrites, blockSize), blockSize>>>(expectedWrites, stride, halfStride, dev_data);
-                checkCUDAError("Failed to launch kernDownsweep");
-            }
+            scan_(paddedLen, blockSize, dev_data);
 
             timer().endGpuTimer();
 
@@ -106,11 +110,71 @@ namespace StreamCompaction {
          * @param idata  The array of elements to compact.
          * @returns      The number of elements remaining after compaction.
          */
-        int compact(int n, int *odata, const int *idata) {
+        int compact(int n, int *odata, const int *idata)
+        {
+            if (n < 1)
+            {
+                return 0;
+            }
+
+            int* dev_idata;
+            int* dev_odata;
+            int* dev_scan;
+            int* dev_mask;
+            
+            const int blockSize = 256;
+            int paddedLen = 1 << ilog2ceil(n);
+            size_t dataSize = n * sizeof(int);
+            size_t paddedDataSize = paddedLen * sizeof(int);
+
+            cudaMalloc((void**)&dev_scan, paddedDataSize);
+            checkCUDAError("Failed to cudaMalloc dev_scan");
+            cudaMemset(dev_scan, 0, paddedDataSize);
+            checkCUDAError("Failed to cudaMemset dev_scan");
+
+            cudaMalloc((void**)&dev_idata, dataSize);
+            checkCUDAError("Failed to cudaMalloc dev_idata");
+            cudaMemcpy(dev_idata, idata, dataSize, cudaMemcpyHostToDevice);
+            checkCUDAError("Failed to cudaMemcpy idata to dev_idata");
+
+            cudaMalloc((void**)&dev_odata, dataSize);
+            checkCUDAError("Failed to cudaMalloc dev_odata");
+
+            cudaMalloc((void**)&dev_mask, dataSize);
+            checkCUDAError("Failed to cudaMalloc dev_mask");
+
             timer().startGpuTimer();
             // TODO
+            int numBlocks = divup(n, blockSize);
+            StreamCompaction::Common::kernMapToBoolean<<<numBlocks, blockSize>>>(n, dev_mask, dev_idata);
+            checkCUDAError("Failed to launch kernMapToBoolean");
+
+            cudaMemcpy(dev_scan, dev_mask, dataSize, cudaMemcpyDeviceToDevice);
+            checkCUDAError("Failed to cudaMemcpy dev_mask to dev_scan");
+
+            scan_(paddedLen, blockSize, dev_scan);
+
+            StreamCompaction::Common::kernScatter<<<numBlocks, blockSize>>>(n, dev_odata, dev_idata, dev_mask, dev_scan);
+            checkCUDAError("Failed to launch kernScatter");
             timer().endGpuTimer();
-            return -1;
+
+            cudaMemcpy(odata, dev_odata, dataSize, cudaMemcpyDeviceToHost);
+            checkCUDAError("Failed to cudaMemcpy dev_odata to odata");
+
+            int exclusiveCount;
+            cudaMemcpy(&exclusiveCount, &dev_scan[n - 1], sizeof(int), cudaMemcpyDeviceToHost);
+            checkCUDAError("Failed to cudaMemcpy exclusiveCount");
+
+            int inclusiveMask;
+            cudaMemcpy(&inclusiveMask, &dev_mask[n - 1], sizeof(int), cudaMemcpyDeviceToHost);
+            checkCUDAError("Failed to cudaMemcpy inclusiveMask");
+
+            cudaFree(dev_idata);
+            cudaFree(dev_odata);
+            cudaFree(dev_scan);
+            cudaFree(dev_mask);
+
+            return exclusiveCount + inclusiveMask;
         }
     }
 }
