@@ -20,7 +20,7 @@ namespace StreamCompaction {
          */
         void scan(int n, int *odata, const int *idata)
         {
-            if (n < 0)
+            if (n < 1)
             {
                 return;
             }
