@@ -42,7 +42,7 @@ namespace StreamCompaction {
             data[rightChildIdx] += leftChildVal;
         }
 
-        inline void scan_(int paddedLen, int blockSize, int *dev_data)
+        inline void scan_(int paddedLen, int *dev_data)
         {
             int steps = ilog2ceil(paddedLen);
             for (int d = 0; d < steps; d++)
@@ -50,7 +50,7 @@ namespace StreamCompaction {
                 int halfStride = 1 << d;
                 int stride = halfStride << 1;
                 int expectedWrites = paddedLen / stride;
-                kernUpsweep<<<divup(expectedWrites, blockSize), blockSize>>>(expectedWrites, stride, halfStride, dev_data);
+                kernUpsweep<<<divup(expectedWrites, BLOCK_SIZE), BLOCK_SIZE>>>(expectedWrites, stride, halfStride, dev_data);
                 checkCUDAError("Failed to launch kernUpsweep");
             }
 
@@ -62,7 +62,7 @@ namespace StreamCompaction {
                 int halfStride = 1 << d;
                 int stride = halfStride << 1;
                 int expectedWrites = paddedLen / stride;
-                kernDownsweep<<<divup(expectedWrites, blockSize), blockSize>>>(expectedWrites, stride, halfStride, dev_data);
+                kernDownsweep<<<divup(expectedWrites, BLOCK_SIZE), BLOCK_SIZE>>>(expectedWrites, stride, halfStride, dev_data);
                 checkCUDAError("Failed to launch kernDownsweep");
             }
         }
@@ -78,7 +78,6 @@ namespace StreamCompaction {
             }
 
             int *dev_data;
-            const int blockSize = 256;
             int paddedLen = 1 << ilog2ceil(n);
             size_t dataSize = n * sizeof(int);
             size_t paddedDataSize = paddedLen * sizeof(int);
@@ -91,7 +90,7 @@ namespace StreamCompaction {
 
             timer().startGpuTimer();
             // TODO
-            scan_(paddedLen, blockSize, dev_data);
+            scan_(paddedLen, dev_data);
 
             timer().endGpuTimer();
 
@@ -121,8 +120,7 @@ namespace StreamCompaction {
             int* dev_odata;
             int* dev_scan;
             int* dev_mask;
-            
-            const int blockSize = 256;
+
             int paddedLen = 1 << ilog2ceil(n);
             size_t dataSize = n * sizeof(int);
             size_t paddedDataSize = paddedLen * sizeof(int);
@@ -145,16 +143,16 @@ namespace StreamCompaction {
 
             timer().startGpuTimer();
             // TODO
-            int numBlocks = divup(n, blockSize);
-            StreamCompaction::Common::kernMapToBoolean<<<numBlocks, blockSize>>>(n, dev_mask, dev_idata);
+            int numBlocks = divup(n, BLOCK_SIZE);
+            StreamCompaction::Common::kernMapToBoolean<<<numBlocks, BLOCK_SIZE>>>(n, dev_mask, dev_idata);
             checkCUDAError("Failed to launch kernMapToBoolean");
 
             cudaMemcpy(dev_scan, dev_mask, dataSize, cudaMemcpyDeviceToDevice);
             checkCUDAError("Failed to cudaMemcpy dev_mask to dev_scan");
 
-            scan_(paddedLen, blockSize, dev_scan);
+            scan_(paddedLen, dev_scan);
 
-            StreamCompaction::Common::kernScatter<<<numBlocks, blockSize>>>(n, dev_odata, dev_idata, dev_mask, dev_scan);
+            StreamCompaction::Common::kernScatter<<<numBlocks, BLOCK_SIZE>>>(n, dev_odata, dev_idata, dev_mask, dev_scan);
             checkCUDAError("Failed to launch kernScatter");
             timer().endGpuTimer();
 

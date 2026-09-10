@@ -10,6 +10,8 @@
 #include <chrono>
 #include <stdexcept>
 
+constexpr int BLOCK_SIZE = 128;
+
 #define FILENAME (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
 #define checkCUDAError(msg) checkCUDAErrorFn(msg, FILENAME, __LINE__)
 
