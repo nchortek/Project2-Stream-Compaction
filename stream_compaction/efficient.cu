@@ -5,6 +5,8 @@
 
 namespace StreamCompaction {
     namespace Efficient {
+        constexpr int blockSize = 256;
+
         using StreamCompaction::Common::PerformanceTimer;
         PerformanceTimer& timer()
         {
@@ -50,7 +52,8 @@ namespace StreamCompaction {
                 int halfStride = 1 << d;
                 int stride = halfStride << 1;
                 int expectedWrites = paddedLen / stride;
-                kernUpsweep<<<divup(expectedWrites, BLOCK_SIZE), BLOCK_SIZE>>>(expectedWrites, stride, halfStride, dev_data);
+                kernUpsweep<<<divup(expectedWrites, blockSize), blockSize>>>(expectedWrites, stride, halfStride, dev_data);
+                //kernUpsweep<<<divup(paddedLen, blockSize), blockSize>>>(expectedWrites, stride, halfStride, dev_data);
                 checkCUDAError("Failed to launch kernUpsweep");
             }
 
@@ -62,7 +65,8 @@ namespace StreamCompaction {
                 int halfStride = 1 << d;
                 int stride = halfStride << 1;
                 int expectedWrites = paddedLen / stride;
-                kernDownsweep<<<divup(expectedWrites, BLOCK_SIZE), BLOCK_SIZE>>>(expectedWrites, stride, halfStride, dev_data);
+                kernDownsweep<<<divup(expectedWrites, blockSize), blockSize>>>(expectedWrites, stride, halfStride, dev_data);
+                //kernDownsweep<<<divup(paddedLen, blockSize), blockSize>>>(expectedWrites, stride, halfStride, dev_data);
                 checkCUDAError("Failed to launch kernDownsweep");
             }
         }
@@ -143,8 +147,8 @@ namespace StreamCompaction {
 
             timer().startGpuTimer();
             // TODO
-            int numBlocks = divup(n, BLOCK_SIZE);
-            StreamCompaction::Common::kernMapToBoolean<<<numBlocks, BLOCK_SIZE>>>(n, dev_mask, dev_idata);
+            int numBlocks = divup(n, blockSize);
+            StreamCompaction::Common::kernMapToBoolean<<<numBlocks, blockSize>>>(n, dev_mask, dev_idata);
             checkCUDAError("Failed to launch kernMapToBoolean");
 
             cudaMemcpy(dev_scan, dev_mask, dataSize, cudaMemcpyDeviceToDevice);
@@ -152,7 +156,7 @@ namespace StreamCompaction {
 
             scan_(paddedLen, dev_scan);
 
-            StreamCompaction::Common::kernScatter<<<numBlocks, BLOCK_SIZE>>>(n, dev_odata, dev_idata, dev_mask, dev_scan);
+            StreamCompaction::Common::kernScatter<<<numBlocks, blockSize>>>(n, dev_odata, dev_idata, dev_mask, dev_scan);
             checkCUDAError("Failed to launch kernScatter");
             timer().endGpuTimer();
 

@@ -6,6 +6,8 @@
 
 namespace StreamCompaction {
     namespace Naive {
+        constexpr int blockSize = 256;
+
         using StreamCompaction::Common::PerformanceTimer;
         PerformanceTimer& timer()
         {
@@ -51,7 +53,7 @@ namespace StreamCompaction {
             int* dev_data1;
             int* dev_data2;
             const size_t intSize = sizeof(int);
-            const int numBlocks = divup(n, BLOCK_SIZE);
+            const int numBlocks = divup(n, blockSize);
             size_t dataSize = n * intSize;
             cudaMalloc((void**)&dev_data1, dataSize);
             checkCUDAError("Failed to cudaMalloc dev_data1");
@@ -65,7 +67,7 @@ namespace StreamCompaction {
             for (int d = 1; d <= ilog2ceil(n); d++)
             {
                 int stride = 1 << (d - 1);
-                kernNaiveScan<<<numBlocks, BLOCK_SIZE>>>(n, stride, dev_data2, dev_data1);
+                kernNaiveScan<<<numBlocks, blockSize>>>(n, stride, dev_data2, dev_data1);
                 checkCUDAError("Failed to launch kernNaiveScan");
                 std::swap(dev_data1, dev_data2);
             }
